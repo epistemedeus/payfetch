@@ -239,6 +239,7 @@ describe("transportFetch — redirects + guards + caps (SPEC §11)", () => {
           authorization: "Bearer secret",
           cookie: "sid=abc",
           "x-payment": "proof",
+          "payment-signature": "v2proof",
           "x-custom": "keep",
         },
         body: null,
@@ -250,9 +251,11 @@ describe("transportFetch — redirects + guards + caps (SPEC §11)", () => {
     const toB = fetch.calls.find((c) => c.url === "https://b.com/")!;
     expect(toA.headers["authorization"]).toBe("Bearer secret"); // first hop keeps them
     expect(toA.headers["x-payment"]).toBe("proof");
+    expect(toA.headers["payment-signature"]).toBe("v2proof");
     expect(toB.headers["authorization"]).toBeUndefined(); // cross-origin ⇒ stripped
     expect(toB.headers["cookie"]).toBeUndefined();
     expect(toB.headers["x-payment"]).toBeUndefined();
+    expect(toB.headers["payment-signature"]).toBeUndefined();
     expect(toB.headers["x-custom"]).toBe("keep"); // a non-sensitive header survives
   });
 

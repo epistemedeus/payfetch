@@ -4,7 +4,7 @@
  * Hermetic. Covers: §3.2 filter tallies (upto / unknown asset / unsupported
  * network / non-integer amount / empty), §3.3 selection (min amount, tie→first),
  * §2 buildPayment window math + clamp, nonce == deps.random bytes, exactly one
- * signature per buildPayment, headers == {X-PAYMENT}, and the X-PAYMENT-RESPONSE
+ * signature per buildPayment, the version-correct payment header, and the X-PAYMENT-RESPONSE
  * round-trip / defensive-null.
  */
 
@@ -16,6 +16,7 @@ import {
   CLOCK_SKEW_S,
   PAYMENT_VALIDITY_DEFAULT_S,
   PAYMENT_VALIDITY_MAX_S,
+  PAYMENT_SIGNATURE_HEADER,
   X_PAYMENT_HEADER,
 } from "../src/core/constants.js";
 import { parseChallenge } from "../src/payer/parse402.js";
@@ -414,6 +415,7 @@ describe("§3.1a rule 2 — version filter + version echo", () => {
       signer,
       fakeDeps({ now: () => NOW_MS, random: fixedRandom(new Uint8Array(32).fill(1)).random, signer }),
     );
+    expect(Object.keys(proof.headers)).toEqual([X_PAYMENT_HEADER]);
     const payload = decodePaymentHeader(proof.headers[X_PAYMENT_HEADER]);
     expect(payload.x402Version).toBe(1);
     expect(payload.scheme).toBe("exact");
@@ -421,14 +423,16 @@ describe("§3.1a rule 2 — version filter + version echo", () => {
     expect(payload.accepted).toBeUndefined(); // v1 has no `accepted`
   });
 
-  it("v2 challenge → payload x402Version 2 with `accepted` (raw CAIP-2 network + amount), no top-level scheme/network", async () => {
+  it("v2 challenge → PAYMENT-SIGNATURE payload with `accepted` (raw CAIP-2 network + amount), no top-level scheme/network", async () => {
     const signer = new FakeSigner();
     const proof = await buildX402Payment(
       quoteFromV2(),
       signer,
       fakeDeps({ now: () => NOW_MS, random: fixedRandom(new Uint8Array(32).fill(2)).random, signer }),
     );
-    const payload = decodePaymentHeader(proof.headers[X_PAYMENT_HEADER]);
+    expect(Object.keys(proof.headers)).toEqual([PAYMENT_SIGNATURE_HEADER]);
+    expect(proof.headers[X_PAYMENT_HEADER]).toBeUndefined();
+    const payload = decodePaymentHeader(proof.headers[PAYMENT_SIGNATURE_HEADER]);
     expect(payload.x402Version).toBe(2);
     expect(payload.scheme).toBeUndefined(); // v2 drops top-level scheme/network
     expect(payload.network).toBeUndefined();

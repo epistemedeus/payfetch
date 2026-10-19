@@ -12,8 +12,8 @@
  *  - `PaymentQuote.amountAtomic` is the advertised atomic STRING, never parsed to
  *    a float; `payTo`/`asset` are lowercased; `amountUsd` is derived only for
  *    KNOWN_ASSETS (SPEC §2/§3.2).
- *  - `PaymentProof.headers` carries the wire header(s) verbatim (x402:
- *    {"X-PAYMENT": <base64 payload>}); `validBeforeTs` is epoch SECONDS (drives
+ *  - `PaymentProof.headers` carries one wire header: `X-PAYMENT` for v1 or
+ *    `PAYMENT-SIGNATURE` for v2. `validBeforeTs` is epoch SECONDS (drives
  *    hold expiry, §5.2); `nonce` is hex (receipt provenance).
  *  - `PayfetchDeps.log` NEVER receives key material (SPEC §1/§12); `random()`
  *    returns 32 bytes (nonce + ids), seeded in tests.
@@ -147,7 +147,7 @@ export type PaymentQuote = {
 };
 
 export type PaymentProof = {
-  headers: Record<string, string>; // {"X-PAYMENT": <base64 payload>} for x402
+  headers: Record<string, string>; // one header: X-PAYMENT (v1) or PAYMENT-SIGNATURE (v2)
   validBeforeTs: number; // epoch SECONDS — drives hold expiry (§5.2)
   nonce: string; // hex; receipt provenance
 };

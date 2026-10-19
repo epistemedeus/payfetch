@@ -33,6 +33,7 @@ import {
   KNOWN_ASSETS,
   PAYMENT_REQUIRED_HEADER,
   PAYMENT_RESPONSE_HEADER,
+  PAYMENT_SIGNATURE_HEADER,
   POLICY_VERSION,
   X_PAYMENT_HEADER,
   X_PAYMENT_RESPONSE_HEADER,
@@ -584,7 +585,7 @@ export class PayfetchEngine {
     // PAY (SPEC §5.3) — ONE buildPayment; retry the 402-ISSUING host + proof.
     // L1: target `leg1.finalUrl` (the host that actually issued the 402), NOT the
     // original `url` — retrying `url` would re-walk any leg-1 redirect chain and
-    // present the signed X-PAYMENT to every intermediate host.
+    // present the signed payment header to every intermediate host.
     verdictPath.push("pay");
     return this.executePayment(
       receiptId, url, leg1.finalUrl, init, method, userHeaders, body, finalHost, quote, payer, policy,
@@ -637,7 +638,7 @@ export class PayfetchEngine {
     const payerAddress = await deps.signer.address();
 
     // 2. retry the 402-ISSUING host + proof headers (reserved-name hygiene done).
-    // L1 / §11: present the signed X-PAYMENT to `finalUrl` (the 402 issuer) with
+    // L1 / §11: present the signed payment header to `finalUrl` (the 402 issuer) with
     // `followRedirects: false` — the proof is never carried across a further
     // redirect hop (matching the guard path's `redirect:"manual"` discipline); a
     // 3xx here is a terminal payment_rejected (hold kept), never chased off-host.
@@ -1374,6 +1375,8 @@ export function stripReservedHeaders(headers: RequestInit["headers"]): Record<st
   const reserved = new Set([
     X_PAYMENT_HEADER.toLowerCase(),
     X_PAYMENT_RESPONSE_HEADER.toLowerCase(),
+    PAYMENT_SIGNATURE_HEADER.toLowerCase(),
+    PAYMENT_RESPONSE_HEADER.toLowerCase(),
     INTEGRATION_HEADER.toLowerCase(),
   ]);
   const out: Record<string, string> = {};

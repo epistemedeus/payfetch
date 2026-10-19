@@ -533,6 +533,27 @@ describe("transport integration + reserved-header hygiene (SPEC §11)", () => {
     expect(retry.headers["x-payment"]).toBeDefined();
     expect(retry.headers["x-payment"]).not.toBe("evil"); // our real proof header
   });
+
+  it("strips a user-supplied PAYMENT-SIGNATURE and sends our v2 proof only", async () => {
+    const fetch = new FakeFetch().on(
+      "GET",
+      URL1,
+      challengeHeaderResponse(challenge402V2()),
+      settlementResponse({ success: true, transaction: "0xstripped" }),
+    );
+    const { client, fetch: f } = mkClient({ fetch, testMode: true });
+    await client.fetch(URL1, {
+      headers: { "PAYMENT-SIGNATURE": "evil", "X-PAYMENT": "also-evil", "X-Custom": "keep" },
+    });
+    const leg1 = f.calls[0];
+    expect(leg1.headers["payment-signature"]).toBeUndefined();
+    expect(leg1.headers["x-payment"]).toBeUndefined();
+    expect(leg1.headers["x-custom"]).toBe("keep");
+    const retry = f.calls[1];
+    expect(retry.headers["x-payment"]).toBeUndefined();
+    expect(retry.headers["payment-signature"]).toBeDefined();
+    expect(retry.headers["payment-signature"]).not.toBe("evil");
+  });
 });
 
 describe("Content-Type auto-default for JSON bodies (1.0.1 §1)", () => {
@@ -1063,7 +1084,8 @@ describe("§3.1a — v2 header-channel end-to-end (WIRE-PARITY WAVE)", () => {
     // The paid retry echoes the RAW CAIP-2 dialect in the v2 payload's `accepted`
     // (policy normalizes to canonical; the seller hears its own dialect back).
     const retry = f.calls[1];
-    const payload = JSON.parse(safeBase64Decode(retry.headers["x-payment"]));
+    expect(retry.headers["x-payment"]).toBeUndefined();
+    const payload = JSON.parse(safeBase64Decode(retry.headers["payment-signature"]));
     expect(payload.x402Version).toBe(2);
     expect(payload.accepted.network).toBe("eip155:84532");
     expect(payload.accepted.amount).toBe("1000");

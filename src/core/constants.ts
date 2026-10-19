@@ -369,9 +369,11 @@ export const NONCE_BYTES = 32;
  * named constants). Used for the PaymentProof header (§2), the challenge/settlement
  * channels (§3.1a rules 1 & 5), and reserved-header hygiene (§11).
  *
- *  - `X_PAYMENT_HEADER` — the client's OUTGOING payment header. §3.1a rule 5:
- *    "Client payment header remains X-PAYMENT (the deployed scaffold accepts it
- *    alongside PAYMENT-SIGNATURE)." We keep sending X-PAYMENT.
+ *  - `X_PAYMENT_HEADER` — outgoing header for an x402 v1 payload (v1 HTTP spec).
+ *  - `PAYMENT_SIGNATURE_HEADER` — outgoing header for an x402 v2 payload.
+ *    `@x402/core` `encodePaymentSignatureHeader` uses this split. The current
+ *    resource server reads `PAYMENT-SIGNATURE` only, so a v2 payload in
+ *    `X-PAYMENT` never reaches verification.
  *  - `PAYMENT_REQUIRED_HEADER` — the v2-canonical challenge channel (§3.1a rule 1):
  *    a 402's base64 PAYMENT-REQUIRED header IS the challenge; the body is fallback.
  *  - `PAYMENT_RESPONSE_HEADER` / `X_PAYMENT_RESPONSE_HEADER` — the settlement
@@ -379,9 +381,15 @@ export const NONCE_BYTES = 32;
  *    X-PAYMENT-RESPONSE. Both are base64 JSON.
  */
 export const X_PAYMENT_HEADER = "X-PAYMENT";
+export const PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE";
 export const PAYMENT_REQUIRED_HEADER = "PAYMENT-REQUIRED";
 export const PAYMENT_RESPONSE_HEADER = "PAYMENT-RESPONSE";
 export const X_PAYMENT_RESPONSE_HEADER = "X-PAYMENT-RESPONSE";
+
+/** Header name for one outgoing payment payload. v1 stays `X-PAYMENT`; v2 uses `PAYMENT-SIGNATURE`. */
+export function outgoingPaymentHeader(x402Version: number): string {
+  return x402Version === 1 ? X_PAYMENT_HEADER : PAYMENT_SIGNATURE_HEADER;
+}
 
 /**
  * Default CDP EVM account name when `PAYFETCH_CDP_ACCOUNT_NAME` is unset (SPEC

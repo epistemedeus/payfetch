@@ -2,7 +2,7 @@
  * P3′ payfetch — X402Payer: the x402 `exact`-EVM rail (SPEC §2, §3.2, §3.3).
  *
  * Purpose: detect x402 challenges, filter+select quotes deterministically, and
- * build a signed EIP-3009 `TransferWithAuthorization` X-PAYMENT payload using an
+ * build a signed EIP-3009 `TransferWithAuthorization` payment payload using an
  * INJECTED `WalletSigner`. We OWN the HTTP loop, guards, budgets, and receipts;
  * we BUILD ON the pinned `@x402/core@2.17.0` package for the wire format (SPEC §0
  * `-- VERIFY x402-wire`, RE-OPENED → §3.1a; WIRE-PARITY WAVE 2026-07-02).
@@ -68,7 +68,7 @@ import {
   RAILS_ENABLED,
   SUPPORTED_NETWORKS,
   SUPPORTED_SCHEMES,
-  X_PAYMENT_HEADER,
+  outgoingPaymentHeader,
   chainIdForNetwork,
   deriveAmountUsd,
   isKnownAsset,
@@ -235,7 +235,9 @@ function extractExtra(rawAccepts: unknown): { name?: string; version?: string } 
 }
 
 /**
- * Build a signed X-PAYMENT proof for `quote` (SPEC §2 normative paragraph).
+ * Build a signed payment proof for `quote` (SPEC §2 normative paragraph).
+ * The header name follows the echoed version: `X-PAYMENT` for v1 and
+ * `PAYMENT-SIGNATURE` for v2, matching `@x402/core` `encodePaymentSignatureHeader`.
  * validAfter = floor(now/1000) − CLOCK_SKEW_S;
  * validBefore = floor(now/1000) + min(maxTimeoutSeconds ?? DEFAULT, MAX);
  * nonce = the 32 bytes from deps.random().
@@ -328,7 +330,7 @@ export async function buildX402Payment(
   const header = safeBase64Encode(JSON.stringify(payment));
 
   return {
-    headers: { [X_PAYMENT_HEADER]: header },
+    headers: { [outgoingPaymentHeader(quote.x402Version)]: header },
     validBeforeTs: validBefore, // epoch SECONDS (SPEC §2 / §5.2)
     nonce: nonceHex,
   };

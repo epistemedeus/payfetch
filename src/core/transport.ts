@@ -39,6 +39,7 @@ import {
   MAX_REDIRECTS,
   RESPONSE_INLINE_MAX_BYTES,
   RESPONSE_MAX_BYTES,
+  PAYMENT_SIGNATURE_HEADER,
   X_PAYMENT_HEADER,
   X_PAYMENT_RESPONSE_HEADER,
 } from "./constants.js";
@@ -367,7 +368,7 @@ export type TransportError = "private_target_blocked" | "insecure_redirect" | "f
 export type TransportOpts = {
   /**
    * Follow 3xx redirects (default true). The PAYING leg passes `false` (L1 / §11):
-   * the signed `X-PAYMENT` proof is presented ONLY to the 402-issuing host
+   * the signed payment header is presented ONLY to the 402-issuing host
    * (`leg1.finalUrl`) and a redirect is NOT chased — mirroring the guard path's
    * `redirect:"manual"`. A 3xx is returned as a terminal response.
    */
@@ -400,11 +401,12 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
  * §9 / §11): a signed payment proof or a bearer/cookie credential is scoped to
  * the origin it was minted for, so a redirect A→B (different origin) must not
  * carry it to B. Same-origin hops keep them (the credential is still for that
- * origin). Lowercased for case-insensitive matching. `X-PAYMENT` covers the
- * paying leg's proof; `Authorization`/`Cookie`/`Proxy-Authorization` cover
- * user-supplied credentials on either leg; the integration header is our own
- * per-target identity. (The paying leg additionally never FOLLOWS redirects —
- * `followRedirects: false`, the guard-path `redirect:"manual"` discipline — so
+ * origin). Lowercased for case-insensitive matching. `X-PAYMENT` and
+ * `PAYMENT-SIGNATURE` cover the paying leg's proof. `Authorization`, `Cookie`,
+ * and `Proxy-Authorization` cover user-supplied credentials. The integration
+ * header is our own per-target identity. (The paying leg additionally never
+ * FOLLOWS redirects — `followRedirects: false`, the guard-path `redirect:"manual"`
+ * discipline — so
  * this is defense-in-depth for the leg-1 resource fetch.)
  */
 const SENSITIVE_REDIRECT_HEADERS: ReadonlySet<string> = new Set([
@@ -413,6 +415,7 @@ const SENSITIVE_REDIRECT_HEADERS: ReadonlySet<string> = new Set([
   "proxy-authorization",
   X_PAYMENT_HEADER.toLowerCase(),
   X_PAYMENT_RESPONSE_HEADER.toLowerCase(),
+  PAYMENT_SIGNATURE_HEADER.toLowerCase(),
   INTEGRATION_HEADER.toLowerCase(),
 ]);
 
