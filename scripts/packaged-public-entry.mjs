@@ -19,7 +19,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -35,7 +35,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT_PATH), "..");
-const STAGING = path.join(tmpdir(), "root683-payfetch-packaged-entry");
+const MODE = process.argv[2];
+const STAGING = MODE === "--runtime" || MODE === "--classification-self-test" ? null : mkdtempSync(path.join(tmpdir(), "payfetch-packaged-entry-"));
 const SPECIFIER = "@forum-labs/payfetch";
 const ENTRY_TARGET = "dist/src/index.js";
 const V1_HEADER = "x-payment";
@@ -48,7 +49,8 @@ const HEAP_FLAG = "--max-old-space-size=1024";
 
 const hits = { dns: 0, connect: 0, fetch: 0, fs: 0 };
 
-if (process.argv[2] === "--runtime") await runRuntime();
+if (MODE === "--runtime") await runRuntime();
+else if (MODE === "--classification-self-test") await classificationSelfTest();
 else await runOrchestrator();
 
 function resetHits() {
@@ -566,7 +568,11 @@ async function runRuntime() {
     resetHits();
     const entry = resolvePublicEntry(packageRoot);
     const utilsFile = resolveInstalled(consumerRoot, packageRoot, "@x402/core/utils");
-    const mod = await import(pathToFileURL(entry.file).href);
+    const publicProbe = await import(pathToFileURL(path.join(consumerRoot, "entry-probe.mjs")).href);
+    const actualEntry = realpathSync(fileURLToPath(publicProbe.resolvedEntry));
+    if (actualEntry !== entry.file) throw new Error("Node bare import resolved a different public entry");
+    const mod = publicProbe.entry;
+    result.resolution = "node-esm-bare-specifier";
     const utils = await import(pathToFileURL(utilsFile).href);
     result.importHits = { ...hits };
     resetHits();
@@ -709,19 +715,24 @@ function evaluateReleased(runtime) {
   const v1Pass = wireOk(runtime.cases?.v1_pay, V1_HEADER, 1);
   if (!v1Pass) failures.push("released v1 did not complete on the shared public entry");
   const v2Pass = wireOk(runtime.cases?.v2_pay, V2_HEADER, 2);
-  return { pass: failures.length === 0, failures, v1Pass, v2Pass };
+  const v2LegacyPass = wireOk(runtime.cases?.v2_pay, V1_HEADER, 2);
+  if (!v2Pass && !v2LegacyPass) failures.push("released v2 comparison is inconclusive");
+  return { pass: failures.length === 0, failures, v1Pass, v2Pass, v2LegacyPass };
 }
 
 async function installConsumer(dir, spec, commands) {
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: false });
   writeFileSync(
     path.join(dir, "package.json"),
     `${JSON.stringify({ name: "payfetch-packaged-entry-consumer", private: true, version: "0.0.0" }, null, 2)}\n`,
   );
   const env = { ...process.env, NO_UPDATE_NOTIFIER: "1", npm_config_fund: "false", npm_config_audit: "false" };
   delete env.NO_COLOR;
-  const installed = await run("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", spec], { cwd: dir, env });
+  const installed = await run("npm", ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", spec], { cwd: dir, env });
+  if (installed.exit === 0) writeFileSync(path.join(dir, "entry-probe.mjs"), `import * as entry from "@forum-labs/payfetch";
+export { entry };
+export const resolvedEntry = import.meta.resolve("@forum-labs/payfetch");
+`, { flag: "wx" });
   commands.push(commandRecord(installed));
   return installed.exit === 0;
 }
@@ -759,7 +770,7 @@ async function runOrchestrator() {
     commands: [],
     limits: [
       `node ${process.version}; test runtime ${HEAP_FLAG}`,
-      "undici@8.5.0 declares engines.node >=22.19.0. This host is not upgraded to clear that warning.",
+      "Dependency engine warnings, if any, are recorded with each install command.",
       "No coverage instrumentation. The hermetic source suite stays npm test.",
       "Synthetic signatures are not payment authority. Header values are not stored.",
       "A local pack is not an npm publish, maintainer release, or outside install.",
@@ -775,8 +786,7 @@ async function runOrchestrator() {
     if (STAGING === REPO || STAGING.startsWith(REPO + path.sep)) {
       throw new Error("staging directory must stay outside the source repo");
     }
-    rmSync(STAGING, { recursive: true, force: true });
-    mkdirSync(STAGING, { recursive: true });
+    // STAGING was exclusively allocated for this run; prior evidence is retained.
     const head = await run("git", ["rev-parse", "HEAD"]);
     const status = await run("git", ["status", "--porcelain"]);
     commands.push(commandRecord(head), commandRecord(status));
@@ -845,11 +855,12 @@ async function runOrchestrator() {
     };
     output.candidateEvaluation = { pass: candidateEval.pass, failures: candidateEval.failures };
     output.discrimination = {
-      publishedDefectObserved: releasedEval.pass && !releasedEval.v2Pass,
+      publishedDefectObserved: releasedEval.pass && releasedEval.v2LegacyPass,
       candidateV1Pass: wireOk(output.candidate.cases?.v1_pay, V1_HEADER, 1),
       candidateV2Pass: wireOk(output.candidate.cases?.v2_pay, V2_HEADER, 2),
       releasedV1Pass: releasedEval.v1Pass,
       releasedV2Pass: releasedEval.v2Pass,
+      releasedV2LegacyHeader: releasedEval.v2LegacyPass,
       distinctImports:
         Boolean(output.released.importPath) &&
         Boolean(output.candidate.importPath) &&
@@ -858,7 +869,9 @@ async function runOrchestrator() {
         ? "released_comparison_incomplete"
         : releasedEval.v2Pass
           ? "published_artifact_already_emits_v2_header"
-          : "released_v2_misses_payment_signature_candidate_required",
+          : releasedEval.v2LegacyPass
+            ? "released_v2_misses_payment_signature_candidate_required"
+            : "released_comparison_incomplete",
     };
     const contrastHolds =
       candidateEval.pass &&
@@ -871,4 +884,21 @@ async function runOrchestrator() {
     output.error = sanitize(err.message);
     finish(false);
   }
+}
+
+
+async function classificationSelfTest() {
+  const { default: assert } = await import("node:assert/strict");
+  const wire = (header, version) => ({ outcome: "paid_delivered", signCount: 1, callCount: 2, quoteX402Version: version, calls: [{paymentHeaderNames: []}, {paymentHeaderNames: [header], decodedX402Version: version}] });
+  const runtime = v2 => ({ confined: true, cases: {v1_pay: wire(V1_HEADER, 1), v2_pay: v2} });
+  const legacy = evaluateReleased(runtime(wire(V1_HEADER, 2)));
+  assert.equal(legacy.pass && legacy.v2LegacyPass && !legacy.v2Pass, true);
+  const corrected = evaluateReleased(runtime(wire(V2_HEADER, 2)));
+  assert.equal(corrected.pass && corrected.v2Pass && !corrected.v2LegacyPass, true);
+  for (const v2 of [{error: "exception"}, {outcome: "policy_denied", signCount: 0}, undefined, wire(V1_HEADER, 1)]) {
+    const result = evaluateReleased(runtime(v2));
+    assert.equal(result.pass, false);
+    assert.equal(result.v2LegacyPass, false);
+  }
+  process.stdout.write(JSON.stringify({ok: true, classificationCases: 6}) + "\n");
 }
