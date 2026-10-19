@@ -467,7 +467,16 @@ npm install         # dev dependencies, including tsx for the from-source flow
 npm run typecheck   # tsc --noEmit
 npm test            # vitest, hermetic, no network
 npm run build       # emit dist/, the compiled JS the package ships
+npm run test:packaged-entry
 ```
+
+`npm test` imports the TypeScript source. `test:packaged-entry` builds and packs
+this checkout, installs that tarball and the published package in isolated
+directories, and imports each public entry (`dist/src/index.js`). The packed
+client must send `X-PAYMENT` for an x402 v1 payload and `PAYMENT-SIGNATURE` for
+v2. Its process injects transport, DNS, filesystem, and a synthetic signer, and
+blocks its own DNS, sockets, and fetch. Installing the two artifacts uses the
+npm registry. A passing local pack is not a release.
 
 ## License
 

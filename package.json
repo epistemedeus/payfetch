@@ -51,6 +51,7 @@
     "build": "tsc -p tsconfig.build.json",
     "build:mcpb": "node mcpb/build.mjs",
     "test": "vitest run",
+    "test:packaged-entry": "node --max-old-space-size=1024 scripts/packaged-public-entry.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run typecheck && npm test"
   },
